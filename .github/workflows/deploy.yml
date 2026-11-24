@@ -1,0 +1,213 @@
+# Deploy an already-published portal image to the host. Never builds anything.
+# Only the portal is rolled here: docs and tools are separate images with their own pipelines/tags.
+#
+#   tag set     -> that tag
+#   ref set     -> the sha of that commit
+#   neither     -> latest
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Portal image tag (empty = latest, or the images of `ref`)'
+        required: false
+        default: ''
+      ref:
+        description: 'Git ref/sha to ship deploy/ from (empty = this run''s commit)'
+        required: false
+        default: ''
+      registry:
+        description: 'Registry override for the host pull (empty = deploy/docker/.env, else ghcr.io)'
+        required: false
+        default: ''
+      skip_preflight:
+        description: 'Skip the GHCR image-exists check'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: static-deploy
+  cancel-in-progress: false
+
+env:
+  DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT || '/opt/nitrowater-static' }}
+
+jobs:
+  preflight:
+    name: preflight (portal image)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - id: resolve
+        env:
+          RAW_TAG: ${{ inputs.tag }}
+          RAW_REF: ${{ inputs.ref }}
+        run: |
+          set -eu
+          sha="$(git rev-parse HEAD)"
+          if [ -n "$RAW_TAG" ]; then tag="$RAW_TAG"
+          elif [ -n "$RAW_REF" ]; then tag="$sha"
+          else tag="latest"; fi
+          case "$tag" in
+            ''|*[!A-Za-z0-9._-]*) echo "::error::invalid tag: $tag"; exit 1 ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "repo=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "deploy: $tag, from $sha"
+
+      - uses: docker/login-action@v3
+        if: ${{ !inputs.skip_preflight }}
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Image must exist
+        if: ${{ !inputs.skip_preflight }}
+        env:
+          REPO: ${{ steps.resolve.outputs.repo }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -eu
+          ref="ghcr.io/$REPO:$TAG"
+          if docker manifest inspect "$ref" >/dev/null 2>&1; then
+            echo "ok $ref"
+          else
+            echo "::error::missing $ref (run build.yml first, or pick an existing tag)"
+            exit 1
+          fi
+
+  deploy:
+    name: deploy (ssh)
+    needs: preflight
+    runs-on: ubuntu-latest
+    environment: app_nitrowater_static_deploy
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
+          persist-credentials: false
+
+      # Tracked files only: never ship a local deploy/docker/.env from the runner.
+      - name: Bundle deploy/
+        run: git archive --format=tar.gz -o /tmp/nitrowater-static-deploy.tgz HEAD deploy
+
+      - name: Copy bundle to host
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+          SSH_PASSPHRASE: ${{ secrets.SSH_PASSPHRASE }}
+        run: |-
+          set -eu
+          key="$RUNNER_TEMP/deploy_key"
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > "$key"
+          chmod 600 "$key"
+          trap 'rm -f "$key"; [ -n "${SSH_AGENT_PID:-}" ] && ssh-agent -k >/dev/null 2>&1 || true' EXIT
+
+          # A passphrase cannot prompt on a runner; unlock via SSH_ASKPASS instead.
+          if [ -n "${SSH_PASSPHRASE:-}" ]; then
+            eval "$(ssh-agent -s)" >/dev/null
+            ask="$RUNNER_TEMP/askpass.sh"
+            printf '#!/bin/sh\nprintf "%%s\\n" "$SSH_PASSPHRASE"\n' > "$ask"
+            chmod 700 "$ask"
+            SSH_ASKPASS="$ask" SSH_ASKPASS_REQUIRE=force DISPLAY=:0 ssh-add "$key" < /dev/null
+            unset SSH_PASSPHRASE
+          fi
+
+          set -- -q -P "$SSH_PORT" -o BatchMode=yes -o ConnectTimeout=20 \
+                 -o StrictHostKeyChecking=accept-new
+          [ -n "${SSH_AUTH_SOCK:-}" ] || set -- "$@" -i "$key"
+          scp "$@" /tmp/nitrowater-static-deploy.tgz \
+            "$SSH_USER@$SSH_HOST:nitrowater-static-deploy.tgz"
+
+      - uses: appleboy/ssh-action@v1.2.0
+        env:
+          TAG: ${{ needs.preflight.outputs.tag }}
+          REGISTRY: ${{ inputs.registry }}
+          REPOSITORY: ${{ github.repository }}
+          DEPLOY_ROOT: ${{ env.DEPLOY_ROOT }}
+          GHCR_USER: ${{ secrets.GHCR_USER }}
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          passphrase: ${{ secrets.SSH_PASSPHRASE }}
+          fingerprint: ${{ secrets.SSH_FINGERPRINT }}
+          timeout: 30s
+          command_timeout: 10m
+          envs: TAG,REGISTRY,REPOSITORY,DEPLOY_ROOT,GHCR_USER,GHCR_PAT
+          script: |
+            set -eu
+            cd "$DEPLOY_ROOT"
+
+            if ! docker info >/dev/null 2>&1; then
+              echo "ERROR: $(id -un) cannot talk to the docker socket" >&2
+              exit 1
+            fi
+
+            if ! docker network inspect nitrowater-net >/dev/null 2>&1; then
+              docker network create nitrowater-net
+            fi
+
+            echo '==> sync deploy/ from this commit'
+            tgz="${HOME:-/tmp}/nitrowater-static-deploy.tgz"
+            rm -rf deploy
+            tar -xzf "$tgz"
+            rm -f "$tgz"
+
+            # Registry precedence: input (shell env) > deploy/docker/.env > ghcr.io.
+            if [ -z "${REGISTRY:-}" ]; then
+              REGISTRY="$(sed -n 's/^[[:space:]]*REGISTRY[[:space:]]*=[[:space:]]*//p' \
+                deploy/docker/.env 2>/dev/null | tail -n 1 | tr -d '\r"')"
+            fi
+            REGISTRY="${REGISTRY:-ghcr.io}"
+            export REGISTRY
+            REPOSITORY="$(printf '%s' "$REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+            export REPOSITORY
+
+            if [ -n "${GHCR_PAT:-}" ] && [ "$REGISTRY" = "ghcr.io" ]; then
+              printf '%s' "$GHCR_PAT" | docker login "$REGISTRY" -u "${GHCR_USER:?GHCR_USER is required when GHCR_PAT is set}" --password-stdin
+              unset GHCR_PAT
+            fi
+
+            COMPOSE="docker compose --env-file deploy/docker/.env -f deploy/docker/docker-compose.yml"
+
+            echo "==> pull portal:$TAG"
+            $COMPOSE pull portal
+
+            echo '==> apply'
+            $COMPOSE up -d --no-build portal
+
+            echo '==> verify'
+            deadline=$(( $(date +%s) + 120 ))
+            while :; do
+              state="$(docker inspect -f '{{.State.Status}}' nitrowater-static-portal 2>/dev/null || echo missing)"
+              health="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' nitrowater-static-portal 2>/dev/null || echo missing)"
+              if [ "$state" = "running" ] && [ "$health" = "healthy" ]; then break; fi
+              if [ "$(date +%s)" -ge "$deadline" ]; then
+                echo "ERROR: portal not ready ($state/$health)" >&2
+                docker logs --tail 50 nitrowater-static-portal || true
+                exit 1
+              fi
+              sleep 3
+            done
+            docker ps --filter name=nitrowater-static --format '  {{.Names}}  {{.Status}}'
+            echo "==> done: $TAG"

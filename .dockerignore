@@ -1,0 +1,14 @@
+node_modules
+dist
+.git
+.ai
+.codegraph
+.github
+.idea
+.vscode
+.playwright-mcp
+deploy
+*.log
+.env
+.env.*
+!*.example

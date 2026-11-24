@@ -1,0 +1,133 @@
+# ============================================================
+# NitroWater static sites: portal (this repo) + docs + tools.
+# No database, no backend, no build step at deploy time — three nginx images only.
+#
+# One-time setup: docker network create nitrowater-net
+# Local preview:  docker compose --env-file deploy/docker/.env -f deploy/docker/docker-compose.yml up -d
+# Public edge:    ... --profile edge up -d   (80/443 via nginx-proxy + acme-companion)
+#
+# If the nitrowater main stack already runs an edge on this host, DO NOT enable
+# the edge profile here (port clash). Point DNS at that edge instead.
+# ============================================================
+name: nitrowater-static
+
+services:
+  # ---- 门户首页（本仓镜像）----
+  portal:
+    image: ${REGISTRY:-ghcr.io}/${PORTAL_REPO:-danburen/nitrowater-static}:${PORTAL_TAG:-latest}
+    container_name: nitrowater-static-portal
+    # 回环端口只用于本地预览 / 健康检查，公网只经 edge 的 80/443 进入。
+    ports:
+      - "${PORTAL_BIND:-127.0.0.1}:${PORTAL_PORT:-18080}:80"
+    environment:
+      VIRTUAL_HOST: ${PORTAL_DOMAIN:-static.nitrowater.cn}
+      VIRTUAL_PORT: 80
+      LETSENCRYPT_HOST: ${PORTAL_DOMAIN:-static.nitrowater.cn}
+      LETSENCRYPT_EMAIL: ${SSL_EMAIL:-}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/healthz || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    mem_limit: 64m
+    restart: unless-stopped
+    networks:
+      - nitrowater-net
+
+  # ---- VeloChatX 文档（nitrowater-plugin-docs 仓产出）----
+  docs:
+    image: ${REGISTRY:-ghcr.io}/${DOCS_REPO:-danburen/nitrowater-plugin-docs}:${DOCS_TAG:-latest}
+    container_name: nitrowater-static-docs
+    ports:
+      - "${DOCS_BIND:-127.0.0.1}:${DOCS_PORT:-18081}:80"
+    environment:
+      VIRTUAL_HOST: ${DOCS_DOMAIN:-docs.nitrowater.cn}
+      VIRTUAL_PORT: 80
+      LETSENCRYPT_HOST: ${DOCS_DOMAIN:-docs.nitrowater.cn}
+      LETSENCRYPT_EMAIL: ${SSL_EMAIL:-}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/velochatx/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    mem_limit: 64m
+    restart: unless-stopped
+    networks:
+      - nitrowater-net
+
+  # ---- 离线工具箱（nitrowater 仓 bake target tools 产出）----
+  tools:
+    image: ${REGISTRY:-ghcr.io}/${TOOLS_REPO:-danburen/nitrowater/tools}:${TOOLS_TAG:-latest}
+    container_name: nitrowater-static-tools
+    ports:
+      - "${TOOLS_BIND:-127.0.0.1}:${TOOLS_PORT:-18082}:80"
+    environment:
+      VIRTUAL_HOST: ${TOOLS_DOMAIN:-tools.nitrowater.cn}
+      VIRTUAL_PORT: 80
+      LETSENCRYPT_HOST: ${TOOLS_DOMAIN:-tools.nitrowater.cn}
+      LETSENCRYPT_EMAIL: ${SSL_EMAIL:-}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    mem_limit: 64m
+    restart: unless-stopped
+    networks:
+      - nitrowater-net
+
+  # ---- 公网入口（profile: edge）----
+  nginx-proxy:
+    profiles: ["edge"]
+    image: nginxproxy/nginx-proxy:1.11-alpine
+    container_name: nitrowater-static-nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      HTTPS_METHOD: redirect
+      TRUST_DOWNSTREAM_PROXY: "true"
+      HSTS: "on"
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+      - static_nginx_certs:/etc/nginx/certs
+      - static_nginx_vhost:/etc/nginx/vhost.d
+      - static_nginx_html:/usr/share/nginx/html
+    mem_limit: 96m
+    restart: unless-stopped
+    networks:
+      - nitrowater-net
+
+  # 按 LETSENCRYPT_HOST 自动签发 / 续期证书（HTTP-01）
+  acme-companion:
+    profiles: ["edge"]
+    image: nginxproxy/acme-companion:2.8.2
+    container_name: nitrowater-static-acme
+    environment:
+      DEFAULT_EMAIL: ${SSL_EMAIL:-}
+      NGINX_PROXY_CONTAINER: nitrowater-static-nginx-proxy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - static_nginx_certs:/etc/nginx/certs
+      - static_nginx_vhost:/etc/nginx/vhost.d
+      - static_nginx_html:/usr/share/nginx/html
+      - static_acme_state:/etc/acme.sh
+    depends_on:
+      - nginx-proxy
+    mem_limit: 64m
+    restart: unless-stopped
+    networks:
+      - nitrowater-net
+
+networks:
+  nitrowater-net:
+    external: true
+
+volumes:
+  static_nginx_certs:
+  static_nginx_vhost:
+  static_nginx_html:
+  static_acme_state:

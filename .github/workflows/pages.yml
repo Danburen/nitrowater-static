@@ -1,0 +1,56 @@
+# GitHub Pages = the homepage's inbound preview. One static page + relative assets mean
+# a project site needs no rewrite rules; only the external links come from repo vars.
+name: pages
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.3'
+          cache: npm
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: Build portal
+        env:
+          VITE_DOCS_URL: ${{ vars.VITE_DOCS_URL }}
+          VITE_TOOLS_URL: ${{ vars.VITE_TOOLS_URL }}
+          VITE_BEIAN_NO: ${{ vars.VITE_BEIAN_NO }}
+        run: npm run build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

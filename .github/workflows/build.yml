@@ -1,0 +1,79 @@
+# Build only: verify the SPA, then push the portal image (latest + <sha>) to GHCR.
+# The docs and tools images are produced by their own repositories — never rebuilt here.
+name: build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  verify:
+    name: npm ci + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.3'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+
+  image:
+    name: push portal image
+    needs: verify
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # GHCR repository names must be lowercase; github.repository may not be.
+      - id: meta
+        run: echo "repo=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.repo }}:latest
+            ${{ env.REGISTRY }}/${{ steps.meta.outputs.repo }}:${{ github.sha }}
+          build-args: |
+            VITE_DOCS_URL=${{ vars.VITE_DOCS_URL }}
+            VITE_TOOLS_URL=${{ vars.VITE_TOOLS_URL }}
+            VITE_BEIAN_NO=${{ vars.VITE_BEIAN_NO }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Summary
+        run: |
+          {
+            echo "### portal image"
+            echo "- \`${{ env.REGISTRY }}/${{ steps.meta.outputs.repo }}:latest\`"
+            echo "- \`${{ env.REGISTRY }}/${{ steps.meta.outputs.repo }}:${{ github.sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
