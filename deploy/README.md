@@ -89,6 +89,38 @@ $COMPOSE up -d --no-build portal
 
 `pages.yml` 只读那五个外链变量，**故意不注入备案号**（`danburen.github.io` 在境外、不是备案域名）。
 本地开发者可复制根目录 `.env.example` 为 `.env.local` 做预览；`docker build` 不读该文件，需显式 `--build-arg`。
+另有一个可选仓库变量 `DEPLOY_ROOT`（默认 `/opt/nitrowater-static`），只决定 SSH 脚本在宿主机 `cd` 到哪。
+
+### 部署期凭据：Environment Secrets（不是仓库 Secrets）
+
+参考 nitrowater 的做法：`deploy.yml` 的 `deploy` job 声明了
+`environment: app_nitrowater_static_deploy`，SSH / GHCR 凭据**只从该 Environment 的 Secrets 读取**；
+`preflight` job 不接触这些值。仓库级 Secrets 一个都不用配（同名时 Environment Secret 优先，
+没设才会回落到仓库级；只设在 Environment 才能配合审批规则保护）。
+
+路径：`Settings → Environments → app_nitrowater_static_deploy → Add secret`
+（Environment 不存在就先创建，可加 required reviewers 做审批保护）。
+
+| Secret | 必填 | 说明 |
+|---|---|---|
+| `SSH_HOST` | ✅ | 宿主机地址 |
+| `SSH_USER` | ✅ | SSH 用户名 |
+| `SSH_KEY` | ✅ | SSH **私钥全文**（不是 Variable；有口令就配 `SSH_PASSPHRASE`） |
+| `SSH_PORT` | 否 | 默认 `22`，非标端口才填 |
+| `SSH_PASSPHRASE` | 否 | 私钥有口令时才填，runner 上通过 SSH_ASKPASS 解锁 |
+| `SSH_FINGERPRINT` | 否 | 填了会固定 host key，留空则 TOFU |
+| `GHCR_USER` / `GHCR_PAT` | 否 | 仅私有 GHCR 包需要；公开包留空即可 |
+
+也可以用 CLI 设置（注意 `--env` 参数，不能省）：
+
+```bash
+gh secret set SSH_HOST -R Danburen/nitrowater-static --env app_nitrowater_static_deploy --body '<host>'
+gh secret set SSH_USER -R Danburen/nitrowater-static --env app_nitrowater_static_deploy --body '<user>'
+gh secret set SSH_KEY  -R Danburen/nitrowater-static --env app_nitrowater_static_deploy < ~/.ssh/id_ed25519
+gh secret list -R Danburen/nitrowater-static --env app_nitrowater_static_deploy   # 核对
+```
+
+`pages.yml` 用的是 GitHub Pages 自动创建的 `github-pages` environment，无需手动配 Secret。
 
 ### 手动发布
 

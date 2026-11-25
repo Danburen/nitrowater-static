@@ -153,6 +153,38 @@ jobs:
       - name: Bundle deploy/
         run: git archive --format=tar.gz -o /tmp/nitrowater-static-deploy.tgz HEAD deploy
 
+      # Fail here, not halfway through an SSH session. Values come from the
+      # 'app_nitrowater_static_deploy' environment declared on this job above —
+      # a job without `environment` cannot see environment secrets at all.
+      - name: SSH secrets present
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+        run: |
+          set -eu
+          missing=""
+          check() {
+            if [ -n "$2" ]; then
+              echo "    ok       $1"
+            else
+              echo "    MISSING  $1"
+              missing="$missing $1"
+            fi
+          }
+          check SSH_HOST "$SSH_HOST"
+          check SSH_USER "$SSH_USER"
+          check SSH_KEY  "$SSH_KEY"
+          check SSH_PORT "$SSH_PORT"
+          case "$SSH_PORT" in
+            ''|*[!0-9]*) echo "::error::SSH_PORT must be numeric"; exit 1 ;;
+          esac
+          if [ -n "$missing" ]; then
+            echo "::error::missing:$missing - set them in the 'app_nitrowater_static_deploy' environment (Settings -> Environments), NOT as repo secrets; SSH_KEY is the private key"
+            exit 1
+          fi
+
       - name: Copy bundle to host
         env:
           SSH_HOST: ${{ secrets.SSH_HOST }}
