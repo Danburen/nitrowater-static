@@ -199,6 +199,13 @@ jobs:
           chmod 600 "$key"
           trap 'rm -f "$key"; [ -n "${SSH_AGENT_PID:-}" ] && ssh-agent -k >/dev/null 2>&1 || true' EXIT
 
+          # An encrypted key with no passphrase cannot authenticate in BatchMode;
+          # fail fast instead of burning three retries on "Permission denied".
+          if [ -z "${SSH_PASSPHRASE:-}" ] && ! ssh-keygen -y -P '' -f "$key" >/dev/null 2>&1; then
+            echo "::error::SSH_KEY is passphrase-protected but SSH_PASSPHRASE is empty - add SSH_PASSPHRASE to the app_nitrowater_static_deploy environment"
+            exit 1
+          fi
+
           # A passphrase cannot prompt on a runner; unlock via SSH_ASKPASS instead.
           if [ -n "${SSH_PASSPHRASE:-}" ]; then
             eval "$(ssh-agent -s)" >/dev/null
