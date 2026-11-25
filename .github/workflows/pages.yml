@@ -34,11 +34,17 @@ jobs:
 
       - run: npm ci --no-audit --no-fund
 
+      # Pages is build-only: external links come from repo Variables at build time.
+      # Registration numbers are deliberately NOT injected: the site is hosted
+      # outside mainland China and danburen.github.io is not the 备案 domain.
+      # Only the real-domain deployment bakes ICP / 公安备案 into the image.
       - name: Build portal
         env:
           VITE_DOCS_URL: ${{ vars.VITE_DOCS_URL }}
           VITE_TOOLS_URL: ${{ vars.VITE_TOOLS_URL }}
-          VITE_BEIAN_NO: ${{ vars.VITE_BEIAN_NO }}
+          VITE_GITHUB_URL: ${{ vars.VITE_GITHUB_URL }}
+          VITE_GITHUB_PROFILE_URL: ${{ vars.VITE_GITHUB_PROFILE_URL }}
+          VITE_STATIC_REPO_URL: ${{ vars.VITE_STATIC_REPO_URL }}
         run: npm run build
 
       - uses: actions/upload-pages-artifact@v3

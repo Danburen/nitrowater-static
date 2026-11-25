@@ -47,7 +47,8 @@ services:
       LETSENCRYPT_HOST: ${DOCS_DOMAIN:-docs.nitrowater.cn}
       LETSENCRYPT_EMAIL: ${SSL_EMAIL:-}
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/velochatx/ || exit 1"]
+      # 当前 docs 镜像用 DOCS_BASE_PREFIX=/plugin 构建，实际入口是 /plugin/velochatx/。
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/plugin/velochatx/ || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3

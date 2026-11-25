@@ -218,7 +218,8 @@ jobs:
 
             echo '==> sync deploy/ from this commit'
             tgz="${HOME:-/tmp}/nitrowater-static-deploy.tgz"
-            rm -rf deploy
+            # tar merges into the existing tree; .env is host state and is NOT in the bundle.
+            # Never `rm -rf deploy` here or the next --env-file run loses its config.
             tar -xzf "$tgz"
             rm -f "$tgz"
 

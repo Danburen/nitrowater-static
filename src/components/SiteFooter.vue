@@ -6,13 +6,22 @@ import { links } from '../config/links'
   <footer class="border-t border-line">
     <div class="mx-auto flex w-full max-w-[1120px] flex-wrap items-center justify-between gap-x-5 gap-y-3 px-[18px] py-6 text-[12.5px] text-faint sm:px-6">
       <span>© 2026 NitroWater All Rights Reserved.</span>
-      <a
-        v-if="links.beianNo"
-        :href="links.beianUrl"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="text-dim no-underline transition hover:text-accent"
-      >{{ links.beianNo }}</a>
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <a
+          v-if="links.beianNo"
+          :href="links.beianUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-dim no-underline transition hover:text-accent"
+        >{{ links.beianNo }}</a>
+        <a
+          v-if="links.gonganNo"
+          :href="links.gonganUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-dim no-underline transition hover:text-accent"
+        >{{ links.gonganNo }}</a>
+      </div>
     </div>
   </footer>
 </template>

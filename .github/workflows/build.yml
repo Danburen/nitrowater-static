@@ -63,10 +63,17 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ steps.meta.outputs.repo }}:latest
             ${{ env.REGISTRY }}/${{ steps.meta.outputs.repo }}:${{ github.sha }}
+          # Build-time only: baked into the JS by Vite. Changing any value here
+          # requires a new build + host pull/redeploy.
           build-args: |
             VITE_DOCS_URL=${{ vars.VITE_DOCS_URL }}
             VITE_TOOLS_URL=${{ vars.VITE_TOOLS_URL }}
+            VITE_GITHUB_URL=${{ vars.VITE_GITHUB_URL }}
+            VITE_GITHUB_PROFILE_URL=${{ vars.VITE_GITHUB_PROFILE_URL }}
+            VITE_STATIC_REPO_URL=${{ vars.VITE_STATIC_REPO_URL }}
             VITE_BEIAN_NO=${{ vars.VITE_BEIAN_NO }}
+            VITE_GONGAN_NO=${{ vars.VITE_GONGAN_NO }}
+            VITE_GONGAN_URL=${{ vars.VITE_GONGAN_URL }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
