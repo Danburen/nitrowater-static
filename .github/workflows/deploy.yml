@@ -4,6 +4,7 @@
 #   tag set     -> that tag
 #   ref set     -> the sha of that commit
 #   neither     -> latest
+
 name: deploy
 
 on:
@@ -18,7 +19,7 @@ on:
         required: false
         default: ''
       registry:
-        description: 'Registry override for the host pull (empty = deploy/docker/.env, else ghcr.io)'
+        description: 'Host pull registry (empty = deploy/docker/.env, then ghcr.io; e.g. ghcr.io)'
         required: false
         default: ''
       skip_preflight:
@@ -26,6 +27,48 @@ on:
         required: false
         type: boolean
         default: false
+
+  # Same shape as nitrowater/deploy.yml: release/build can call this with the
+  # registry chosen by the user, while a manual run still uses the inputs above.
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Portal image tag (empty = latest, or the images of `ref`)'
+        required: false
+        type: string
+        default: ''
+      ref:
+        description: 'Git ref/sha to ship deploy/ from (empty = this run''s commit)'
+        required: false
+        type: string
+        default: ''
+      registry:
+        description: 'Host pull registry (empty = deploy/docker/.env, then ghcr.io; e.g. ghcr.io)'
+        required: false
+        type: string
+        default: ''
+      skip_preflight:
+        description: 'Skip the GHCR image-exists check'
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      SSH_HOST:
+        required: true
+      SSH_USER:
+        required: true
+      SSH_KEY:
+        required: true
+      SSH_PORT:
+        required: false
+      SSH_PASSPHRASE:
+        required: false
+      SSH_FINGERPRINT:
+        required: false
+      GHCR_USER:
+        required: false
+      GHCR_PAT:
+        required: false
 
 permissions:
   contents: read
@@ -35,6 +78,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  # Host-side pull only: default empty is intentional — ghcr.io is already the .env/compose
+  # fallback, and an injected non-empty value wins over --env-file. Preflight always checks
+  # ghcr.io (source registry), like the main nitrowater repo.
+  REGISTRY: ${{ inputs.registry }}
   DEPLOY_ROOT: ${{ vars.DEPLOY_ROOT || '/opt/nitrowater-static' }}
 
 jobs:
@@ -139,7 +186,9 @@ jobs:
       - uses: appleboy/ssh-action@v1.2.0
         env:
           TAG: ${{ needs.preflight.outputs.tag }}
-          REGISTRY: ${{ inputs.registry }}
+          # Compose reads PORTAL_TAG, not TAG; process env wins over --env-file.
+          PORTAL_TAG: ${{ needs.preflight.outputs.tag }}
+          REGISTRY: ${{ env.REGISTRY }}
           REPOSITORY: ${{ github.repository }}
           DEPLOY_ROOT: ${{ env.DEPLOY_ROOT }}
           GHCR_USER: ${{ secrets.GHCR_USER }}
@@ -153,7 +202,7 @@ jobs:
           fingerprint: ${{ secrets.SSH_FINGERPRINT }}
           timeout: 30s
           command_timeout: 10m
-          envs: TAG,REGISTRY,REPOSITORY,DEPLOY_ROOT,GHCR_USER,GHCR_PAT
+          envs: TAG,PORTAL_TAG,REGISTRY,REPOSITORY,DEPLOY_ROOT,GHCR_USER,GHCR_PAT
           script: |
             set -eu
             cd "$DEPLOY_ROOT"
@@ -180,8 +229,16 @@ jobs:
             fi
             REGISTRY="${REGISTRY:-ghcr.io}"
             export REGISTRY
+
+            # Like nitrowater: make the portal image path match this repo (GHCR needs lowercase).
             REPOSITORY="$(printf '%s' "$REPOSITORY" | tr '[:upper:]' '[:lower:]')"
             export REPOSITORY
+            PORTAL_REPO="$REPOSITORY"
+            export PORTAL_REPO
+
+            # The tag from the UI/caller must reach compose; otherwise .env's PORTAL_TAG wins.
+            PORTAL_TAG="${PORTAL_TAG:-$TAG}"
+            export PORTAL_TAG
 
             if [ -n "${GHCR_PAT:-}" ] && [ "$REGISTRY" = "ghcr.io" ]; then
               printf '%s' "$GHCR_PAT" | docker login "$REGISTRY" -u "${GHCR_USER:?GHCR_USER is required when GHCR_PAT is set}" --password-stdin
@@ -190,7 +247,7 @@ jobs:
 
             COMPOSE="docker compose --env-file deploy/docker/.env -f deploy/docker/docker-compose.yml"
 
-            echo "==> pull portal:$TAG"
+            echo "==> pull portal:$PORTAL_TAG from $REGISTRY/$PORTAL_REPO"
             $COMPOSE pull portal
 
             echo '==> apply'
@@ -210,4 +267,4 @@ jobs:
               sleep 3
             done
             docker ps --filter name=nitrowater-static --format '  {{.Names}}  {{.Status}}'
-            echo "==> done: $TAG"
+            echo "==> done: $REGISTRY/$PORTAL_REPO:$PORTAL_TAG"

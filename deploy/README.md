@@ -49,7 +49,23 @@ docker compose --env-file deploy/docker/.env -f deploy/docker/docker-compose.yml
 
 回滚 = 把 tag 改回旧的 sha（各仓库 workflow 每次推送 `latest` + `<sha>` 两个 tag）。
 
-## 5. 前端入站预览
+## 5. GitHub Actions 手动发布（GHCR）
+
+`deploy.yml` 支持手动传参，和 nitrowater 主仓一致：
+
+```bash
+gh workflow run deploy.yml -f tag=latest -f registry=ghcr.io
+# 回滚到某次构建：gh workflow run deploy.yml -f ref=<commit-sha> -f registry=ghcr.io
+```
+
+- `registry`：workflow 默认值故意留空——CI 读不到服务器上的 `.env`，留空就完全由 `.env` 决定；
+  填 `ghcr.io` 时会在 SSH 脚本里以进程 env 注入并覆盖 `.env`，`compose` 的兜底也是 `ghcr.io`。
+- `tag` / `ref`：二选一；传入的 tag 以 `PORTAL_TAG` 进程 env 覆盖 `.env`，只更新门户镜像。
+- `skip_preflight`：私有包或镜像源没有链接到本仓时勾上，跳过 GHCR 存在性检查；默认仍会在 `ghcr.io` 校验源镜像。
+- 也可由其他 workflow 用 `workflow_call` 调用，inputs/secrets 与 `workflow_dispatch` 同名。
+- GitHub Pages 是从源码构建，不拉镜像；`registry` 只作用于门户/文档/工具的 nginx 镜像。
+
+## 6. 前端入站预览
 
 `.github/workflows/pages.yml` 把门户发布到 GitHub Pages（`https://danburen.github.io/nitrowater-static/`）。
 门户是单首页 + 相对资源路径（`base: './'`），Pages 项目站点无需任何 rewrite 配置；
