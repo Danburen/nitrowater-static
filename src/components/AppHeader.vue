@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import SvgIcon from './SvgIcon.vue'
+import GithubCorner from './GithubCorner.vue'
 import { links } from '../config/links'
 import { theme, toggleTheme } from '../composables/theme'
 
@@ -16,7 +17,7 @@ const nav = [
 
 <template>
   <header class="sticky top-0 z-20 h-[var(--app-header-h)] border-b border-line bg-bg/88 backdrop-blur-md">
-    <div class="mx-auto flex h-full w-full max-w-[1120px] items-center gap-2.5 px-[18px] sm:gap-6 sm:px-6">
+    <div class="mx-auto flex h-full w-full max-w-[1120px] items-center gap-2.5 pl-[18px] pr-[92px] sm:gap-6 sm:pl-6 sm:pr-6">
       <a href="./" class="flex shrink-0 items-center gap-2.5 whitespace-nowrap text-ink no-underline" aria-label="NitroWater 静态门户首页">
         <img :src="logoUrl" alt="" class="size-[26px] shrink-0">
         <span class="text-[15px] font-semibold tracking-[-0.2px]">NitroWater</span>
@@ -50,5 +51,7 @@ const nav = [
         </button>
       </div>
     </div>
+
+    <GithubCorner />
   </header>
 </template>

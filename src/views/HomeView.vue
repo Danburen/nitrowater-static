@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import SvgIcon from '../components/SvgIcon.vue'
+import BookmarkHintDialog from '../components/BookmarkHintDialog.vue'
 import { links } from '../config/links'
 
 interface Entry {
@@ -23,12 +25,12 @@ const entries: Entry[] = [
     key: 'tools',
     href: links.tools,
     title: '离线工具箱',
-    sub: '浏览器本地 · 无需登录',
+    sub: '丰富的服务器工具，浏览器本地离线运行',
     icon: 'M4 7.5h16M5 7.5l.9 11a2 2 0 0 0 2 1.9h8.2a2 2 0 0 0 2-1.9l.9-11M9.5 7.5V5.5a2 2 0 0 1 2-2h1a2 2 0 0 1 2 2v2',
   },
 ]
 
-const CONTRIBUTE_URL = `${links.github}/issues`
+const bookmarkOpen = ref(false)
 </script>
 
 <template>
@@ -66,26 +68,37 @@ const CONTRIBUTE_URL = `${links.github}/issues`
 
       <div class="mt-6 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[12.5px] text-faint">
         <a
+          :href="links.profile"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="访问 Danburen 的 GitHub 主页"
+          class="inline-flex items-center gap-1.5 no-underline transition hover:text-ink"
+        >
+          <SvgIcon name="user" :size="15" />
+          查看我的主页
+        </a>
+        <button
+          type="button"
+          title="把本站加入浏览器收藏夹"
+          class="inline-flex cursor-pointer items-center gap-1.5 no-underline transition hover:text-ink"
+          @click="bookmarkOpen = true"
+        >
+          <SvgIcon name="star" :size="15" />
+          收藏 nitrowater
+        </button>
+        <a
           :href="links.github"
           target="_blank"
           rel="noopener noreferrer"
-          title="在 GitHub 上查看本项目"
+          title="在 GitHub 查看 nitrowater 项目"
           class="inline-flex items-center gap-1.5 no-underline transition hover:text-ink"
         >
           <SvgIcon name="github" :size="15" />
-          GitHub 源码
-        </a>
-        <a
-          :href="CONTRIBUTE_URL"
-          target="_blank"
-          rel="noopener noreferrer"
-          title="提交 issue 或改进建议"
-          class="inline-flex items-center gap-1.5 no-underline transition hover:text-ink"
-        >
-          <SvgIcon name="git-pull-request" :size="15" />
-          参与贡献
+          查看 nitrowater 项目
         </a>
       </div>
     </div>
+
+    <BookmarkHintDialog :open="bookmarkOpen" @close="bookmarkOpen = false" />
   </section>
 </template>

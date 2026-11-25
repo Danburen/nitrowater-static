@@ -82,7 +82,7 @@
 }
 
 @layer utilities {
-  /* Only the two animated effects stay as CSS; everything else is Tailwind utilities. */
+  /* The animated effects stay as CSS; everything else is Tailwind utilities. */
   .hero-glow {
     background: radial-gradient(
       ellipse at center,
@@ -120,5 +120,40 @@
     .hero-gradient {
       background-position: 40% 50%;
     }
+  }
+}
+
+/* Corner badge from tholman/github-corners: clip to the triangle + wave the octo-arm on hover. */
+.github-corner svg {
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+}
+
+@keyframes octocat-wave {
+  0% { transform: rotate(0deg); }
+  20% { transform: rotate(-25deg); }
+  40% { transform: rotate(10deg); }
+  60% { transform: rotate(-25deg); }
+  80% { transform: rotate(10deg); }
+  100% { transform: rotate(0deg); }
+}
+
+.github-corner:hover .octo-arm {
+  animation: octocat-wave 560ms ease-in-out;
+}
+
+@media (max-width: 500px) {
+  .github-corner:hover .octo-arm {
+    animation: none;
+  }
+
+  .github-corner .octo-arm {
+    animation: octocat-wave 560ms ease-in-out;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .github-corner .octo-arm,
+  .github-corner:hover .octo-arm {
+    animation: none;
   }
 }
